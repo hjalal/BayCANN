@@ -182,6 +182,38 @@ Xq_unscaled <- unscale_data(Xq, vec.mins = xmins, vec.maxs = xmaxs)
 # SAve the unscaled posterior samples
 write.csv(Xq_unscaled, file = "output/calibrated_posteriors.csv")
 
+#### Visualization of priors and posteriors ####
+# Plot histogram for individual posteriors and compare to prior
+# Read the unscaled posterior samples
+Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+priordf <- data.frame(Xunscaled)
+postdf <- data.frame(Xq_unscaled)
+colnames(postdf) <- x_names
+priordf$type <- 'prior'
+postdf$type <- paste('chain ', sort(rep(1:4, n_iter/2)))
+priorpost <- rbind(priordf, postdf)
+melt_df <- melt(priorpost)
+line_df <- data.frame(variable = x_names, intercept = cbind(x_true_unscaled))
+colnames(line_df) <- c("variable","intercept")
+ggplot(melt_df, aes(value, fill=type, colour = type)) + 
+  geom_density(alpha = 0.1) + 
+  facet_wrap(~variable, scales="free") + 
+  geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
+ggsave("output/convergence.png")
+
+# Plot histogram for combined posterior and compare to the truth and the prior
+melt_df_comb = melt_df
+melt_df_comb[melt_df_comb == "chain  1" | melt_df_comb == "chain  2" |
+               melt_df_comb == "chain  3" | melt_df_comb == "chain  4" ] <- "post"
+ggplot(melt_df_comb, aes(value, fill=type, colour = type)) + 
+  geom_density(alpha = 0.1) + 
+  facet_wrap(~variable, scales="free") + 
+  geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
+ggsave("output/prior_post_truth.png")
+png(filename='output/joint_post.png')
+pairs(Xq_unscaled, labels=x_names, diag.panel = panel.hist)
+dev.off()
+
 #### Visualization of pairwise joint distribitions and correlations ####
 library(reshape2)
 library(GGally)
