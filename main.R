@@ -14,7 +14,7 @@ n_iter <- 10000
 n_hidden_nodes <- 100
 n_hidden_layers <- 2 
 n_epochs <- 10000
-verbose <- 0
+verbose <- 1
 n_batch_size <- 2000
 n_chains <- 4
 
@@ -67,9 +67,9 @@ model %>% compile(
 )
 keras.time <- proc.time()
 history <- model %>% fit(
-  xscaled, yscaled, 
+  xtrain_scaled, ytrain_scaled,
   epochs = n_epochs, batch_size = n_batch_size, 
-  validation_split = n_test/(n_train + n_test),
+  validation_data = list(xtest_scaled, ytest_scaled), 
   verbose = verbose
 )
 proc.time() - keras.time #keras ann fitting time
