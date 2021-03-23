@@ -1,42 +1,35 @@
+# load libraries ========
 library(keras)
 library(rstan)
+library(reshape2)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
-# Set working directory
-setwd()
+# load baycann functions =======
+source("baycann_functions.R")
 
 # ==================
 # Input parameters
-n_obs <- 10000
 n_iter <- 10000
 n_hidden_nodes <- 100
 n_hidden_layers <- 2 
 n_epochs <- 10000
 verbose <- 0
 n_batch_size <- 2000
-validation_split <- 0.2
 n_chains <- 4
 
-# =================================================
-# functions
-scale_data <- function(unscaled_data){
-  vec.maxs <- apply(unscaled_data, 2, max) 
-  vec.mins <- apply(unscaled_data, 2, min)
-  vec.ones <- matrix(1, nrow = nrow(unscaled_data), 1)
-  mat.maxs <- vec.ones %*% vec.maxs
-  mat.mins <- vec.ones %*% vec.mins
-  scaled_data <- 2 * (unscaled_data - mat.mins) / (mat.maxs - mat.mins) - 1
-  results <- list(scaled_data = scaled_data, vec.mins = vec.mins, vec.maxs = vec.maxs)
-  return(results)
-}
-unscale_data <- function(scaled_data, vec.mins, vec.maxs){
-  vec.ones <- matrix(1, nrow = nrow(scaled_data), 1)
-  mat.mins <- vec.ones %*% vec.mins
-  mat.maxs <- vec.ones %*% vec.maxs
-  unscaled_data <- (scaled_data + 1) * (mat.maxs - mat.mins) / 2 + mat.mins
-}
+# load the training and test datasets for the simulations =========
+load("data/05_DoE-unif-crc-nhm-det_test_n_train.rData")
 
+prepared_data <- prepare_data(xtrain = samp_i_unif_train,
+                              ytrain = out_i_det_unif_train,
+                              xtest  = samp_i_unif_test,
+                              ytest  = out_i_det_unif_test)
+
+list2env(prepared_data, envir = .GlobalEnv)
+
+
+# load the targets and their se ==========
 load("data/03_targets-crc-nhm_100-runs.RData")
 targets_combinedmean100 <- rbind(df.true.adeno.100runs, df.true.crc.100runs)
 targets_combinedse100 <- rbind(df.true.adeno.se.100runs, df.true.crc.se.100runs)
@@ -44,24 +37,6 @@ denom_seq <- c(rep(100,20), rep(100000,16)) # adenomas are per 100, and CRC per 
 true_targets_mean <- rowMeans(targets_combinedmean100[,4:103]) / denom_seq #pooled average of 100 sims
 true_targets_se <- sqrt(rowMeans(targets_combinedse100[,4:103]^2)) / denom_seq #pooled standard error of 100 sims
 
-load("data/05_DoE-unif-crc-nhm-det.rData")
-df_nn <- data.frame(cbind(samp_i_unif, out_i_det_unif))
-y_idx <- 10:45 
-x_idx <- 1:9
-Xunscaled <- df_nn[,x_idx]
-Yunscaled <- df_nn[,y_idx]
-
-# scale the PSA inputs and outputs
-xresults <- scale_data(Xunscaled) 
-yresults <- scale_data(Yunscaled)
-xscaled <- xresults$scaled_data 
-yscaled <- yresults$scaled_data 
-xmins <- xresults$vec.mins
-xmaxs <- xresults$vec.maxs
-ymins <- yresults$vec.mins
-ymaxs <- yresults$vec.maxs
-y_names <-colnames(out_i_det_unif)
-x_names <-colnames(samp_i_unif)
 
 # get the true data
 x_true_data <- read.csv(file="data/01_true-params.csv", header = T, sep = ",")
@@ -71,51 +46,30 @@ x_true_unscaled <- x_true_data$x
 # Scale the targets and their SE
 y_targets <- 2 * (true_targets_mean - ymins) / (ymaxs - ymins) - 1
 y_targets_se <- 2 * (true_targets_se) / (ymaxs - ymins)
+
 y_targets <- t(as.matrix(y_targets))
 y_targets_se <- t(as.matrix(y_targets_se))
 
-# ======================================
-# Verify the truth is within the bounds of the x's!
-par(mfrow = c(3,3), mar=c(1,1,1,1))
-for (i in 1:9){
-  hist(Xunscaled[,i], main = x_names[i])
-  abline(v=x_true_unscaled[i],col="red")
-}
-
 
 # ============== TensorFlow Keras ANN Section ========================
-N <- floor(n_obs * .8)
-Nt <- n_obs-N
-train_ind <- sample(n_obs,N)
-test_ind <- setdiff(1:n_obs, train_ind) 
-X <- xscaled[train_ind,]
-Y <- yscaled[train_ind,]
-Xt <- xscaled[test_ind,]
-yt <- yscaled[test_ind,]
-num_outputs <- ncol(Y)
-indcol <- 1:36
-x_train <- data.matrix(X)
-y_train <- data.matrix(Y[,indcol])
-x_test <- data.matrix(Xt)
-y_test <- data.matrix(yt[,indcol])
-n_outputs <- dim(y_test)[2]
-n_inputs <- dim(x_test)[2]
+
 model <- keras_model_sequential() 
-model %>% 
-  layer_dense(units = n_hidden_nodes, activation = 'tanh', input_shape = n_inputs) %>% 
-  layer_dense(units = n_hidden_nodes, activation = 'tanh') %>%
-  layer_dense(units = n_hidden_nodes, activation = 'tanh') %>%
-  layer_dense(units = n_outputs)
+mdl_string = paste("model %>% layer_dense(units = n_hidden_nodes, activation = 'tanh', input_shape = n_inputs) %>%", 
+                   paste(rep(x = "layer_dense(units = n_hidden_nodes, activation = 'tanh') %>%", 
+                n_hidden_layers), collapse = " "), 
+                 "layer_dense(units = n_outputs)")
+eval(parse(text = mdl_string))
 summary(model)
+
 model %>% compile(
   loss = 'mean_squared_error',
   optimizer = 'adam'
 )
 keras.time <- proc.time()
 history <- model %>% fit(
-  x_train, y_train, 
-  epochs = n_epochs, batch_size = N, 
-  validation_split = validation_split,
+  xscaled, yscaled, 
+  epochs = n_epochs, batch_size = n_batch_size, 
+  validation_split = n_test/(n_train + n_test),
   verbose = verbose
 )
 proc.time() - keras.time #keras ann fitting time
@@ -124,13 +78,12 @@ png(filename='output/ann_convergence.png')
 plot(history)
 dev.off()
 
-model %>% evaluate(x_test, y_test)
 weights <- get_weights(model) #get ANN weights
-pred <- model %>% predict(x_test)
+pred <- model %>% predict(xtest_scaled)
 png(filename='output/ann_validation_vs_observed.png')
 par("mar", mfrow = c(6,6), mar=c(1,1,1,1))
 for (o in 1:n_outputs){
-  plot(y_test[,o], pred[,o]) 
+  plot(ytest_scaled[,o], pred[,o]) 
 }
 dev.off()
 
@@ -162,33 +115,30 @@ stan.dat=list(
   weight_first = weight_first, 
   weight_middle = weight_middle, 
   weight_last = weight_last)
-m <- stan_model("code/post_multi_perceptron.stan")
+m <- stan_model("post_multi_perceptron.stan")
 stan.time <- proc.time()
 s <- sampling(m, data = stan.dat, iter = n_iter, chains = n_chains, 
               pars = c("Xq"))
 proc.time() - stan.time # stan sampling time
 fitmat = as.matrix(s)
 Xq <- fitmat[,grep("Xq", colnames(fitmat))]
-
-# get ypred using stan output and the Keras ANN
-Xqmeans <- colMeans(Xq)
-pred_keras <- model %>% predict(Xq)
-pred_keras_means <- colMeans(pred_keras)
-plot(y_targets, pred_keras_means)
+summary(m)
 
 # Scale the posteriors
 Xq_unscaled <- unscale_data(Xq, vec.mins = xmins, vec.maxs = xmaxs)
 
-# SAve the unscaled posterior samples
+# Save the unscaled posterior samples
 write.csv(Xq_unscaled, file = "output/calibrated_posteriors.csv")
+
 
 #### Visualization of priors and posteriors ####
 # Plot histogram for individual posteriors and compare to prior
 # Read the unscaled posterior samples
 Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
-priordf <- data.frame(Xunscaled)
+priordf <- data.frame(samp_i_unif_train)
 postdf <- data.frame(Xq_unscaled)
 colnames(postdf) <- x_names
+
 priordf$type <- 'prior'
 postdf$type <- paste('chain ', sort(rep(1:4, n_iter/2)))
 priorpost <- rbind(priordf, postdf)
@@ -210,69 +160,4 @@ ggplot(melt_df_comb, aes(value, fill=type, colour = type)) +
   facet_wrap(~variable, scales="free") + 
   geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
 ggsave("output/prior_post_truth.png")
-png(filename='output/joint_post.png')
-pairs(Xq_unscaled, labels=x_names, diag.panel = panel.hist)
-dev.off()
-
-#### Visualization of pairwise joint distribitions and correlations ####
-library(reshape2)
-library(GGally)
-# Read the unscaled posterior samples
-Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
-df_post <- data.frame(Xq_unscaled)
-colnames(df_post) <- x_names
-
-df_post_long <- reshape2::melt(df_post,
-                               variable.name = "Parameter")
-df_post_long$Parameter <- factor(df_post_long$Parameter, 
-                                 levels = levels(df_post_long$Parameter),
-                                 ordered = TRUE, 
-                                 labels = c(expression(l),
-                                            expression(gamma),
-                                            expression(lambda[2]),
-                                            expression(lambda[3]),
-                                            expression(lambda[4]),
-                                            expression(lambda[5]),
-                                            expression(lambda[6]),
-                                            expression(p[adeno]),
-                                            expression(p[small])))
-
-gg_calib_post_pair_corr <- GGally::ggpairs(df_post,
-                                           upper = list(continuous = wrap("cor",
-                                                                          color = "black",
-                                                                          size = 5)),
-                                           diag = list(continuous = wrap("barDiag",
-                                                                         alpha = 0.8)),
-                                           lower = list(continuous = wrap("points", 
-                                                                          alpha = 0.3,
-                                                                          size = 0.5)),
-                                           columnLabels = c("l",
-                                                            "gamma",
-                                                            "lambda[2]",
-                                                            "lambda[3]",
-                                                            "lambda[4]",
-                                                            "lambda[5]",
-                                                            "lambda[6]",
-                                                            "p[adeno]",
-                                                            "p[small]"),
-                                           labeller = "label_parsed") +
-  theme_bw(base_size = 18) +
-  theme(axis.title.x = element_blank(),
-        axis.text.x  = element_text(size=6),
-        axis.title.y = element_blank(),
-        axis.text.y  = element_blank(),
-        axis.ticks.y = element_blank(),
-        strip.background = element_rect(fill = "white",
-                                        color = "white"),
-        strip.text = element_text(hjust = 0))
-gg_calib_post_pair_corr
-
-ggsave(filename = "output/posterior_distribution_pairwise_corr.pdf",
-       gg_calib_post_pair_corr,
-       width = 12, height = 8)
-ggsave(filename = "output/posterior_distribution_pairwise_corr.jpeg",
-       gg_calib_post_pair_corr,
-       width = 12, height = 8)
-ggsave(filename = "output/posterior_distribution_pairwise_corr.png",
-       width = 12, height = 8)
 
