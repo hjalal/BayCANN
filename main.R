@@ -161,3 +161,134 @@ ggplot(melt_df_comb, aes(value, fill=type, colour = type)) +
   geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
 ggsave("output/prior_post_truth.png")
 
+#### Visualization of pairwise joint distributions and correlations ####
+library(GGally)
+# Read the unscaled posterior samples
+Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+df_post <- data.frame(Xq_unscaled)
+colnames(df_post) <- x_names
+
+df_post_long <- reshape2::melt(df_post,
+                               variable.name = "Parameter")
+df_post_long$Parameter <- factor(df_post_long$Parameter, 
+                                 levels = levels(df_post_long$Parameter),
+                                 ordered = TRUE, 
+                                 labels = c(expression(l),
+                                            expression(gamma),
+                                            expression(lambda[2]),
+                                            expression(lambda[3]),
+                                            expression(lambda[4]),
+                                            expression(lambda[5]),
+                                            expression(lambda[6]),
+                                            expression(p[adeno]),
+                                            expression(p[small])))
+
+gg_calib_post_pair_corr <- GGally::ggpairs(df_post,
+                                           upper = list(continuous = wrap("cor",
+                                                                          color = "black",
+                                                                          size = 5)),
+                                           diag = list(continuous = wrap("barDiag",
+                                                                         alpha = 0.8)),
+                                           lower = list(continuous = wrap("points", 
+                                                                          alpha = 0.3,
+                                                                          size = 0.5)),
+                                           columnLabels = c("l",
+                                                            "gamma",
+                                                            "lambda[2]",
+                                                            "lambda[3]",
+                                                            "lambda[4]",
+                                                            "lambda[5]",
+                                                            "lambda[6]",
+                                                            "p[adeno]",
+                                                            "p[small]"),
+                                           labeller = "label_parsed") +
+  theme_bw(base_size = 18) +
+  theme(axis.title.x = element_blank(),
+        axis.text.x  = element_text(size=6),
+        axis.title.y = element_blank(),
+        axis.text.y  = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.background = element_rect(fill = "white",
+                                        color = "white"),
+        strip.text = element_text(hjust = 0))
+gg_calib_post_pair_corr
+
+ggsave(filename = "output/posterior_distribution_pairwise_corr.pdf",
+       gg_calib_post_pair_corr,
+       width = 12, height = 8)
+ggsave(filename = "output/posterior_distribution_pairwise_corr.jpeg",
+       gg_calib_post_pair_corr,
+       width = 12, height = 8)
+ggsave(filename = "output/posterior_distribution_pairwise_corr.png",
+       width = 12, height = 8)
+
+#### ANN vs. IMIS ####
+### Load IMIS posterior
+load(file="data/04_crc-nhm-det_posterior-IMIS-unif.rData") 
+df_post_imis <- post_imis_unif
+
+### Load ANN posterior
+df_post_ann <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+colnames(df_post_ann) <- x_names
+
+n_samp <- 1000
+df_samp_prior <- melt(cbind(Distribution = "Prior", 
+                            as.data.frame(samp_i_unif_train[1:1000, ])), 
+                      variable.name = "Parameter")
+df_samp_post_imis  <- melt(cbind(Distribution = "Posterior IMIS", 
+                                 as.data.frame(df_post_imis[1:1000, ])), 
+                           variable.name = "Parameter")
+# (v.params0 - colMeans(df_post_imis))^2
+df_samp_post_ann   <- melt(cbind(Distribution = "Posterior BayCANN", 
+                                 as.data.frame(df_post_ann[1:1000, ])), 
+                           variable.name = "Parameter")
+df_samp_prior_post <- rbind(df_samp_prior, 
+                            df_samp_post_ann, 
+                            df_samp_post_imis)
+df_samp_prior_post$Distribution <- ordered(df_samp_prior_post$Distribution, 
+                                           levels = c("Prior", 
+                                                      "Posterior IMIS", 
+                                                      "Posterior BayCANN"))
+v_names_params_greek <- c(expression(l),
+                          expression(g),  # expression(gamma)
+                          expression(lambda[2]),
+                          expression(lambda[3]),
+                          expression(lambda[4]),
+                          expression(lambda[5]),
+                          expression(lambda[6]),
+                          expression(p[adeno]),
+                          expression(p[small]))
+df_samp_prior_post$Parameter <- factor(df_samp_prior_post$Parameter,
+                                       levels = levels(df_samp_prior_post$Parameter),
+                                       ordered = TRUE,
+                                       labels = v_names_params_greek)
+### Plot priors and ANN and IMIS posteriors
+gg_ann_vs_imis <- ggplot(df_samp_prior_post, 
+                         aes(x = value, y = ..density.., fill = Distribution)) +
+  facet_wrap(~Parameter, scales = "free", 
+             ncol = 3,
+             labeller = label_parsed) +
+  geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
+                               value = x_true_data$x, row.names = v_names_params_greek), 
+             aes(xintercept = value)) +
+  scale_x_continuous(breaks = dampack::number_ticks(5)) +
+  geom_density(alpha=0.5) +
+  theme_bw(base_size = 18) +
+  theme(legend.position = "bottom",
+        axis.title.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        strip.background = element_rect(fill = "white",
+                                        color = "white"),
+        strip.text = element_text(hjust = 0))
+gg_ann_vs_imis
+ggsave(gg_ann_vs_imis, 
+       filename = "figs/ANN-vs-IMIS-posterior.pdf", 
+       width = 10, height = 6)
+ggsave(gg_ann_vs_imis, 
+       filename = "figs/ANN-vs-IMIS-posterior.png", 
+       width = 10, height = 6)
+ggsave(gg_ann_vs_imis, 
+       filename = "figs/ANN-vs-IMIS-posterior.jpeg", 
+       width = 10, height = 6)
