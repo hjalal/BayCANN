@@ -273,7 +273,7 @@ gg_ann_vs_imis <- ggplot(df_samp_prior_post,
              aes(xintercept = value)) +
   scale_x_continuous(breaks = dampack::number_ticks(5)) +
   geom_density(alpha=0.5) +
-  theme_bw(base_size = 18) +
+  theme_bw(base_size = 16) +
   theme(legend.position = "bottom",
         axis.title.x=element_blank(),
         axis.title.y=element_blank(),
