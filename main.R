@@ -14,10 +14,10 @@ n_iter <- 10000
 n_hidden_nodes <- 100
 n_hidden_layers <- 2 
 n_epochs <- 10000
-verbose <- 1
+verbose <- 0
 n_batch_size <- 2000
 n_chains <- 4
-
+set.seed(1234)
 # load the training and test datasets for the simulations =========
 load("data/05_DoE-unif-crc-nhm-det_test_n_train.rData")
 
@@ -54,10 +54,10 @@ y_targets_se <- t(as.matrix(y_targets_se))
 # ============== TensorFlow Keras ANN Section ========================
 
 model <- keras_model_sequential() 
-mdl_string = paste("model %>% layer_dense(units = n_hidden_nodes, activation = 'tanh', input_shape = n_inputs) %>%", 
+mdl_string <- paste("model %>% layer_dense(units = n_hidden_nodes, activation = 'tanh', input_shape = n_inputs) %>%", 
                    paste(rep(x = "layer_dense(units = n_hidden_nodes, activation = 'tanh') %>%", 
-                n_hidden_layers), collapse = " "), 
-                 "layer_dense(units = n_outputs)")
+                   n_hidden_layers), collapse = " "), 
+                   "layer_dense(units = n_outputs)")
 eval(parse(text = mdl_string))
 summary(model)
 
@@ -68,7 +68,8 @@ model %>% compile(
 keras.time <- proc.time()
 history <- model %>% fit(
   xtrain_scaled, ytrain_scaled,
-  epochs = n_epochs, batch_size = n_batch_size, 
+  epochs = n_epochs, 
+  batch_size = n_batch_size, 
   validation_data = list(xtest_scaled, ytest_scaled), 
   verbose = verbose
 )
@@ -87,7 +88,26 @@ for (o in 1:n_outputs){
 }
 dev.off()
 
+ytest_scaled_pred <- data.frame(pred)
+colnames(ytest_scaled_pred) <- y_names
+head(ytest_scaled_pred)
 
+ann_valid <- rbind(data.frame(sim = 1:n_test, ytest_scaled, type = "model"), 
+                   data.frame(sim = 1:n_test, ytest_scaled_pred, type = "pred"))
+ann_valid_transpose <- ann_valid %>% 
+  pivot_longer(cols = -c(sim, type)) %>% 
+  pivot_wider(id_cols = c(sim, name), names_from = type, values_from = value)
+ggplot(data = ann_valid_transpose, aes(x = model, y = pred)) + 
+  geom_point(alpha = 0.5, color = "tomato") + 
+  facet_wrap(~name, ncol = 6) + 
+  xlab("Model outputs (scaled)") + 
+  ylab("ANN predictions (scaled)") + 
+  coord_equal() + 
+  theme_bw()
+
+ggsave(filename = "figs/fig4_ann_validation_vs_observed.pdf", width = 8.5, height = 11)
+ggsave(filename = "figs/fig4_ann_validation_vs_observed.png", width = 8.5, height = 11)
+ggsave(filename = "figs/fig4_ann_validation_vs_observed.jpg", width = 8.5, height = 11)
 # ======== STAN SECTION ====================
 # pass the weights and biases to Stan for Bayesian calibration
 n_layers <- length(weights)
@@ -115,40 +135,56 @@ stan.dat=list(
   weight_first = weight_first, 
   weight_middle = weight_middle, 
   weight_last = weight_last)
-m <- stan_model("post_multi_perceptron.stan")
+
 stan.time <- proc.time()
-s <- sampling(m, data = stan.dat, iter = n_iter, chains = n_chains, 
-              pars = c("Xq"))
+m <- stan(file = "post_multi_perceptron.stan", 
+          data = stan.dat, 
+          iter = n_iter, 
+          chains = n_chains, 
+          pars = c("Xq"))
 proc.time() - stan.time # stan sampling time
-fitmat = as.matrix(s)
-Xq <- fitmat[,grep("Xq", colnames(fitmat))]
 summary(m)
 
-# Scale the posteriors
-Xq_unscaled <- unscale_data(Xq, vec.mins = xmins, vec.maxs = xmaxs)
+params <- extract(m, )
+lp <- params$lp__
+Xq <- params$Xq
+Xq_df = as.data.frame(Xq)
 
+# Scale the posteriors
+Xq_unscaled <- unscale_data(Xq_df, vec.mins = xmins, vec.maxs = xmaxs)
+Xq_lp <- cbind(Xq_unscaled, lp) 
 # Save the unscaled posterior samples
-write.csv(Xq_unscaled, file = "output/calibrated_posteriors.csv")
+write.csv(Xq_lp, 
+          file = "output/calibrated_posteriors.csv", 
+          row.names = FALSE)
 
 
 #### Visualization of priors and posteriors ####
 # Plot histogram for individual posteriors and compare to prior
 # Read the unscaled posterior samples
-Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+Xq_lp <- read.csv(file = "output/calibrated_posteriors.csv")
+n_col <- ncol(Xq_lp)
+lp <- Xq_lp[, n_col]
+Xq_unscaled <- Xq_lp[, -n_col]
 priordf <- data.frame(samp_i_unif_train)
 postdf <- data.frame(Xq_unscaled)
 colnames(postdf) <- x_names
+map_baycann <- Xq_unscaled[which.max(lp), ]
+
 
 priordf$type <- 'prior'
 postdf$type <- paste('chain ', sort(rep(1:4, n_iter/2)))
 priorpost <- rbind(priordf, postdf)
 melt_df <- melt(priorpost)
 line_df <- data.frame(variable = x_names, intercept = cbind(x_true_unscaled))
+map_baycann_df <- data.frame(variable = x_names, intercept = t(map_baycann))
 colnames(line_df) <- c("variable","intercept")
+colnames(map_baycann_df) <- c("variable","intercept")
 ggplot(melt_df, aes(value, fill=type, colour = type)) + 
   geom_density(alpha = 0.1) + 
   facet_wrap(~variable, scales="free") + 
-  geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
+  geom_vline(data=line_df, aes(xintercept=intercept)) + 
+  geom_vline(data=map_baycann_df, aes(xintercept=intercept), color = "red")
 ggsave("output/convergence.png")
 
 # Plot histogram for combined posterior and compare to the truth and the prior
@@ -158,13 +194,15 @@ melt_df_comb[melt_df_comb == "chain  1" | melt_df_comb == "chain  2" |
 ggplot(melt_df_comb, aes(value, fill=type, colour = type)) + 
   geom_density(alpha = 0.1) + 
   facet_wrap(~variable, scales="free") + 
-  geom_vline(data=line_df, aes(xintercept=x_true_unscaled))
+  geom_vline(data=line_df, aes(xintercept=intercept)) + 
+  geom_vline(data=map_baycann_df, aes(xintercept=intercept), color = "red")
+
 ggsave("output/prior_post_truth.png")
 
 #### Visualization of pairwise joint distributions and correlations ####
 library(GGally)
 # Read the unscaled posterior samples
-Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+#Xq_unscaled <- read.csv(file = "output/calibrated_posteriors.csv")[, -n_col]
 df_post <- data.frame(Xq_unscaled)
 colnames(df_post) <- x_names
 
@@ -228,7 +266,7 @@ load(file="data/04_crc-nhm-det_posterior-IMIS-unif.RData")
 df_post_imis <- post_imis_unif
 
 ### Load ANN posterior
-df_post_ann <- read.csv(file = "output/calibrated_posteriors.csv")[, -1]
+df_post_ann <- read.csv(file = "output/calibrated_posteriors.csv")[, -n_col]
 colnames(df_post_ann) <- x_names
 
 n_samp <- 1000
@@ -264,24 +302,27 @@ df_samp_prior_post$Parameter <- factor(df_samp_prior_post$Parameter,
                                        labels = v_names_params_greek)
 ### Plot priors and ANN and IMIS posteriors
 gg_ann_vs_imis <- ggplot(df_samp_prior_post, 
-                         aes(x = value, y = ..density.., fill = Distribution)) +
-  facet_wrap(~Parameter, scales = "free", 
-             ncol = 3,
-             labeller = label_parsed) +
-  geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
-                               value = x_true_data$x, row.names = v_names_params_greek), 
-             aes(xintercept = value)) +
-  scale_x_continuous(breaks = dampack::number_ticks(5)) +
-  geom_density(alpha=0.5) +
-  theme_bw(base_size = 16) +
-  theme(legend.position = "bottom",
-        axis.title.x=element_blank(),
-        axis.title.y=element_blank(),
-        axis.text.y=element_blank(),
-        axis.ticks.y=element_blank(),
-        strip.background = element_rect(fill = "white",
-                                        color = "white"),
-        strip.text = element_text(hjust = 0))
+           aes(x = value, y = ..density.., fill = Distribution)) +
+    facet_wrap(~Parameter, scales = "free", 
+               ncol = 3,
+               labeller = label_parsed) +
+    geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
+                                 value = x_true_data$x, row.names = v_names_params_greek), 
+               aes(xintercept = value)) +
+    geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
+                 value = c(t(map_baycann)), row.names = v_names_params_greek), 
+      aes(xintercept = value), color = "tomato") +
+    scale_x_continuous(breaks = dampack::number_ticks(5)) +
+    geom_density(alpha=0.5) +
+    theme_bw(base_size = 16) +
+    theme(legend.position = "bottom",
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank(),
+          strip.background = element_rect(fill = "white",
+                                          color = "white"),
+          strip.text = element_text(hjust = 0))
 gg_ann_vs_imis
 ggsave(gg_ann_vs_imis, 
        filename = "figs/ANN-vs-IMIS-posterior.pdf", 
