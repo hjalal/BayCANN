@@ -6,7 +6,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 # load baycann functions =======
-source("baycann_functions.R")
+source("R/baycann_functions.R")
 
 # ==================
 # Input parameters
@@ -108,6 +108,7 @@ ggplot(data = ann_valid_transpose, aes(x = model, y = pred)) +
 ggsave(filename = "figs/fig4_ann_validation_vs_observed.pdf", width = 8.5, height = 11)
 ggsave(filename = "figs/fig4_ann_validation_vs_observed.png", width = 8.5, height = 11)
 ggsave(filename = "figs/fig4_ann_validation_vs_observed.jpg", width = 8.5, height = 11)
+
 # ======== STAN SECTION ====================
 # pass the weights and biases to Stan for Bayesian calibration
 n_layers <- length(weights)
@@ -300,22 +301,42 @@ df_samp_prior_post$Parameter <- factor(df_samp_prior_post$Parameter,
                                        levels = levels(df_samp_prior_post$Parameter),
                                        ordered = TRUE,
                                        labels = v_names_params_greek)
+
+df_maps_n_true_params <- data.frame(Type = ordered(rep(c("True parameter", 
+                                                     "IMIS MAP", 
+                                                     "BayCANN MAP"), each = 9), 
+                                             levels = c("True parameter", 
+                                                        "IMIS MAP", 
+                                                        "BayCANN MAP")), 
+                                    Parameter = as.character(v_names_params_greek),
+                                    value = c(x_true_data$x, 
+                                              v_calib_post_map, 
+                                              t(map_baycann)))
+df_maps_n_true_params
 ### Plot priors and ANN and IMIS posteriors
 gg_ann_vs_imis <- ggplot(df_samp_prior_post, 
            aes(x = value, y = ..density.., fill = Distribution)) +
     facet_wrap(~Parameter, scales = "free", 
                ncol = 3,
                labeller = label_parsed) +
-    geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
-                                 value = x_true_data$x, row.names = v_names_params_greek), 
-               aes(xintercept = value)) +
-    geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
-                 value = c(t(map_baycann)), row.names = v_names_params_greek), 
-      aes(xintercept = value), color = "tomato") +
+    # geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
+    #                              value = x_true_data$x, row.names = v_names_params_greek), 
+    #            aes(xintercept = value)) +
+    # geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
+    #              value = c(t(map_baycann)), row.names = v_names_params_greek), 
+    #   aes(xintercept = value), color = "tomato") +
+    geom_vline(data = df_maps_n_true_params,
+               aes(xintercept = value, linetype = Type, color = Type)) +
     scale_x_continuous(breaks = dampack::number_ticks(5)) +
+    scale_color_manual("", values = c("black", "navy blue", "tomato")) +
     geom_density(alpha=0.5) +
     theme_bw(base_size = 16) +
+    guides(fill = guide_legend(title = "", order = 1),
+           linetype = guide_legend(title = "", order = 2),
+           color = guide_legend(title = "", order = 2)) +
     theme(legend.position = "bottom",
+          legend.box = "vertical",
+          legend.margin=margin(),
           axis.title.x=element_blank(),
           axis.title.y=element_blank(),
           axis.text.y=element_blank(),
@@ -326,10 +347,10 @@ gg_ann_vs_imis <- ggplot(df_samp_prior_post,
 gg_ann_vs_imis
 ggsave(gg_ann_vs_imis, 
        filename = "figs/ANN-vs-IMIS-posterior.pdf", 
-       width = 10, height = 6)
+       width = 10, height = 7)
 ggsave(gg_ann_vs_imis, 
        filename = "figs/ANN-vs-IMIS-posterior.png", 
-       width = 10, height = 6)
+       width = 10, height = 7)
 ggsave(gg_ann_vs_imis, 
        filename = "figs/ANN-vs-IMIS-posterior.jpeg", 
-       width = 10, height = 6)
+       width = 10, height = 7)
