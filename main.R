@@ -271,7 +271,6 @@ gg_ann_vs_imis <- ggplot(df_samp_prior_post,
   geom_vline(data = data.frame(Parameter = as.character(v_names_params_greek),
                                value = x_true_data$x, row.names = v_names_params_greek), 
              aes(xintercept = value)) +
-  
   scale_x_continuous(breaks = dampack::number_ticks(5)) +
   geom_density(alpha=0.5) +
   theme_bw(base_size = 16) +
