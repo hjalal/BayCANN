@@ -2,6 +2,7 @@
 library(keras)
 library(rstan)
 library(reshape2)
+library(tidyverse)
 rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
@@ -81,13 +82,6 @@ dev.off()
 
 weights <- get_weights(model) #get ANN weights
 pred <- model %>% predict(xtest_scaled)
-png(filename='output/ann_validation_vs_observed.png')
-par("mar", mfrow = c(6,6), mar=c(1,1,1,1))
-for (o in 1:n_outputs){
-  plot(ytest_scaled[,o], pred[,o]) 
-}
-dev.off()
-
 ytest_scaled_pred <- data.frame(pred)
 colnames(ytest_scaled_pred) <- y_names
 head(ytest_scaled_pred)
@@ -142,11 +136,12 @@ m <- stan(file = "post_multi_perceptron.stan",
           data = stan.dat, 
           iter = n_iter, 
           chains = n_chains, 
-          pars = c("Xq"))
+          pars = c("Xq"), 
+          seed = 12345) #for reproducibility. R's set.seed() will not work for stan
 proc.time() - stan.time # stan sampling time
 summary(m)
 
-params <- extract(m, )
+params <- rstan::extract(m)
 lp <- params$lp__
 Xq <- params$Xq
 Xq_df = as.data.frame(Xq)
@@ -172,7 +167,7 @@ postdf <- data.frame(Xq_unscaled)
 colnames(postdf) <- x_names
 map_baycann <- Xq_unscaled[which.max(lp), ]
 
-
+# plotting BayCANN's posterior distributions ========
 priordf$type <- 'prior'
 postdf$type <- paste('chain ', sort(rep(1:4, n_iter/2)))
 priorpost <- rbind(priordf, postdf)
