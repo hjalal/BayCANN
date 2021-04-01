@@ -247,13 +247,13 @@ gg_calib_post_pair_corr <- GGally::ggpairs(df_post,
         strip.text = element_text(hjust = 0))
 gg_calib_post_pair_corr
 
-ggsave(filename = "output/posterior_distribution_pairwise_corr.pdf",
+ggsave(filename = "figs/fig7_posterior_distribution_pairwise_corr.pdf",
        gg_calib_post_pair_corr,
        width = 12, height = 8)
-ggsave(filename = "output/posterior_distribution_pairwise_corr.jpeg",
+ggsave(filename = "figs/fig7_posterior_distribution_pairwise_corr.jpeg",
        gg_calib_post_pair_corr,
        width = 12, height = 8)
-ggsave(filename = "output/posterior_distribution_pairwise_corr.png",
+ggsave(filename = "figs/fig7_posterior_distribution_pairwise_corr.png",
        width = 12, height = 8)
 
 #### ANN vs. IMIS ####
@@ -341,11 +341,11 @@ gg_ann_vs_imis <- ggplot(df_samp_prior_post,
           strip.text = element_text(hjust = 0))
 gg_ann_vs_imis
 ggsave(gg_ann_vs_imis, 
-       filename = "figs/ANN-vs-IMIS-posterior.pdf", 
+       filename = "figs/fig5_ANN-vs-IMIS-posterior.pdf", 
        width = 10, height = 7)
 ggsave(gg_ann_vs_imis, 
-       filename = "figs/ANN-vs-IMIS-posterior.png", 
+       filename = "figs/fig5_ANN-vs-IMIS-posterior.png", 
        width = 10, height = 7)
 ggsave(gg_ann_vs_imis, 
-       filename = "figs/ANN-vs-IMIS-posterior.jpeg", 
+       filename = "figs/fig5_ANN-vs-IMIS-posterior.jpeg", 
        width = 10, height = 7)
