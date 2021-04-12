@@ -7,7 +7,7 @@ rstan_options(auto_write = TRUE)
 options(mc.cores = parallel::detectCores())
 
 # load baycann functions =======
-source("R/baycann_functions.R")
+source("baycann_functions.R")
 
 # ==================
 # Input parameters
